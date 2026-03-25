@@ -1,9 +1,11 @@
 <?php
 
+use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -172,6 +174,8 @@ test('green api incoming webhook stores a whatsapp message for the latest conver
         'message' => 'Please reply on WhatsApp if easier.',
     ]);
 
+    Event::fake([MessageSent::class]);
+
     $payload = [
         'typeWebhook' => 'incomingMessageReceived',
         'idMessage' => 'F7AEC1B7086ECDC7E6E45923F5EDB825',
@@ -198,6 +202,8 @@ test('green api incoming webhook stores a whatsapp message for the latest conver
     expect($storedMessage?->channel)->toBe('whatsapp');
     expect($storedMessage?->provider_message_id)->toBe('F7AEC1B7086ECDC7E6E45923F5EDB825');
     expect($storedMessage?->message)->toBe('Replying from WhatsApp now.');
+
+    Event::assertDispatched(MessageSent::class, fn (MessageSent $event): bool => $event->message->is($storedMessage));
 });
 
 test('green api outgoing status webhook updates a relayed message status', function () {
@@ -234,6 +240,102 @@ test('green api outgoing status webhook updates a relayed message status', funct
     ])->postJson(route('api.green-api.webhook'), $payload)->assertNoContent();
 
     expect($message->fresh()->provider_status)->toBe('read');
+});
+
+test('green api outgoing message received webhook updates an existing message status', function () {
+    config()->set('services.green_api.webhook_token', 'Bearer integration-secret');
+
+    $customer = User::factory()->create();
+    $tradesperson = User::factory()->create();
+
+    $conversation = Conversation::create([
+        'customer_id' => $customer->id,
+        'tradesperson_id' => $tradesperson->id,
+    ]);
+
+    $message = Message::create([
+        'conversation_id' => $conversation->id,
+        'sender_id' => $customer->id,
+        'type' => 'user',
+        'channel' => 'in_app',
+        'relay_channel' => 'whatsapp',
+        'message' => 'Status check',
+        'provider_message_id' => '3EB0608D6A2901063D63',
+        'provider_status' => 'pending',
+    ]);
+
+    $payload = [
+        'typeWebhook' => 'outgoingMessageReceived',
+        'idMessage' => '3EB0608D6A2901063D63',
+        'instanceData' => [
+            'wid' => '447700900111@c.us',
+        ],
+        'senderData' => [
+            'chatId' => '447700900222@c.us',
+        ],
+    ];
+
+    $this->withHeaders([
+        'Authorization' => 'Bearer integration-secret',
+    ])->postJson(route('api.green-api.webhook'), $payload)->assertNoContent();
+
+    expect($message->fresh()->provider_status)->toBe('sent');
+});
+
+test('green api outgoing message received webhook stores a new message when sent from phone', function () {
+    config()->set('services.green_api.webhook_token', 'Bearer integration-secret');
+
+    $customer = User::factory()->create([
+        'phone' => '+213558054300',
+    ]);
+    $tradesperson = User::factory()->create();
+
+    $conversation = Conversation::create([
+        'customer_id' => $customer->id,
+        'tradesperson_id' => $tradesperson->id,
+    ]);
+
+    Message::create([
+        'conversation_id' => $conversation->id,
+        'sender_id' => $tradesperson->id,
+        'type' => 'user',
+        'channel' => 'in_app',
+        'relay_channel' => 'whatsapp',
+        'message' => 'Following up from WhatsApp.',
+    ]);
+
+    Event::fake([MessageSent::class]);
+
+    $payload = [
+        'typeWebhook' => 'outgoingMessageReceived',
+        'idMessage' => 'NEW_MESSAGE_ID',
+        'instanceData' => [
+            'wid' => '7107562859@c.us',
+        ],
+        'senderData' => [
+            'chatId' => '213558054300@c.us',
+        ],
+        'messageData' => [
+            'typeMessage' => 'textMessage',
+            'textMessageData' => [
+                'textMessage' => 'test',
+            ],
+        ],
+    ];
+
+    $this->withHeaders([
+        'Authorization' => 'Bearer integration-secret',
+    ])->postJson(route('api.green-api.webhook'), $payload)->assertNoContent();
+
+    $storedMessage = Message::query()->where('provider_message_id', 'NEW_MESSAGE_ID')->first();
+
+    expect($storedMessage)->not->toBeNull();
+    expect($storedMessage?->conversation_id)->toBe($conversation->id);
+    expect($storedMessage?->sender_id)->toBe($tradesperson->id);
+    expect($storedMessage?->message)->toBe('test');
+    expect($storedMessage?->provider_status)->toBe('sent');
+
+    Event::assertDispatched(MessageSent::class, fn (MessageSent $event): bool => $event->message->is($storedMessage));
 });
 
 test('users can search for people to start a conversation', function () {

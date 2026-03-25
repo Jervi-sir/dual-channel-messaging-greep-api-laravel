@@ -169,11 +169,10 @@ function MessageBubble({
             className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
         >
             <div
-                className={`max-w-[85%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[70%] ${
-                    isOwnMessage
+                className={`max-w-[85%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[70%] ${isOwnMessage
                         ? 'rounded-br-md bg-primary text-primary-foreground'
                         : 'rounded-bl-md border bg-card text-card-foreground'
-                }`}
+                    }`}
             >
                 {!isOwnMessage && message.sender ? (
                     <p className="mb-1 text-xs font-medium opacity-70">
@@ -220,8 +219,8 @@ function MessageBubble({
                         ) : null}
 
                         {!isImage(message.file_url) &&
-                        !isVideo(message.file_url) &&
-                        !isAudio(message.file_url) ? (
+                            !isVideo(message.file_url) &&
+                            !isAudio(message.file_url) ? (
                             <a
                                 href={message.file_url}
                                 target="_blank"
@@ -238,7 +237,7 @@ function MessageBubble({
                 <p className="mt-2 text-right text-[11px] opacity-70">
                     {message.channel === 'whatsapp' ? 'WhatsApp - ' : ''}
                     {message.relay_channel === 'whatsapp' &&
-                    message.channel === 'in_app'
+                        message.channel === 'in_app'
                         ? `Mirrored to WhatsApp${message.provider_status ? ` (${message.provider_status})` : ''} - `
                         : ''}
                     {formatTimestamp(message.created_at)}
@@ -389,8 +388,8 @@ export default function ConversationsPage({
 
                 const isNearBottom =
                     container.scrollHeight -
-                        container.scrollTop -
-                        container.clientHeight <
+                    container.scrollTop -
+                    container.clientHeight <
                     160;
 
                 if (
@@ -683,7 +682,7 @@ export default function ConversationsPage({
     };
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        <AppLayout>
             <Head title="Conversations" />
 
             <Dialog
@@ -867,9 +866,8 @@ export default function ConversationsPage({
                                                         conversation.id,
                                                     )
                                                 }
-                                                className={`flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-accent/60 ${
-                                                    isActive ? 'bg-accent' : ''
-                                                }`}
+                                                className={`flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-accent/60 ${isActive ? 'bg-accent' : ''
+                                                    }`}
                                             >
                                                 <Avatar className="size-11">
                                                     <AvatarFallback>
@@ -895,7 +893,7 @@ export default function ConversationsPage({
                                                                 conversation
                                                                     .latest_message
                                                                     ?.created_at ??
-                                                                    conversation.updated_at,
+                                                                conversation.updated_at,
                                                             )}
                                                         </span>
                                                     </div>
@@ -1044,7 +1042,7 @@ export default function ConversationsPage({
                                                         setSelectedFile(
                                                             event.target
                                                                 .files?.[0] ??
-                                                                null,
+                                                            null,
                                                         );
                                                     }}
                                                 />

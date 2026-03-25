@@ -10,10 +10,10 @@ Apply these settings to your `.env` file to ensure the application knows its pub
 
 ```env
 # General API Domain
-APP_URL=http://green-api.jervi.dev:9010
+APP_URL=http://green-api.anywaresolutions.org:9010
 
 # Reverb WebSocket Configuration
-REVERB_HOST="green-reverb.jervi.dev"
+REVERB_HOST="green-reverb.anywaresolutions.org"
 REVERB_PORT=9011
 REVERB_SCHEME=http
 
@@ -34,7 +34,7 @@ sudo nano /etc/supervisor/conf.d/green-reverb.conf
 ```ini
 [program:green-reverb]
 process_name=%(program_name)s
-command=php /home/jervi/projects/dual-channel-messaging-greep-api-laravel/artisan reverb:start --host=127.0.0.1 --port=9011
+command=php /home/jervi/projects/dual-channel-messaging-green-api-laravel/artisan reverb:start --host=127.0.0.1 --port=9011
 autostart=true
 autorestart=true
 stopasgroup=true
@@ -42,7 +42,7 @@ killasgroup=true
 user=jervi
 numprocs=1
 redirect_stderr=true
-stdout_logfile=/home/jervi/projects/dual-channel-messaging-greep-api-laravel/storage/logs/reverb.log
+stdout_logfile=/home/jervi/projects/dual-channel-messaging-green-api-laravel/storage/logs/reverb.log
 stopwaitsecs=3600
 ```
 
@@ -51,7 +51,7 @@ sudo nano /etc/supervisor/conf.d/green-worker.conf
 ```ini
 [program:green-worker]
 process_name=%(program_name)s_%(process_num)02d
-command=php /home/jervi/projects/dual-channel-messaging-greep-api-laravel/artisan queue:work --tries=3 --timeout=90
+command=php /home/jervi/projects/dual-channel-messaging-green-api-laravel/artisan queue:work --tries=3 --timeout=90
 autostart=true
 autorestart=true
 stopasgroup=true
@@ -59,7 +59,7 @@ killasgroup=true
 user=jervi
 numprocs=1
 redirect_stderr=true
-stdout_logfile=/home/jervi/projects/dual-channel-messaging-greep-api-laravel/storage/logs/worker.log
+stdout_logfile=/home/jervi/projects/dual-channel-messaging-green-api-laravel/storage/logs/worker.log
 stopwaitsecs=3600
 ```
 ### Server 3: Laravel api (`/etc/supervisor/conf.d/green-api.conf`)
@@ -67,7 +67,7 @@ sudo nano /etc/supervisor/conf.d/green-api.conf
 ```ini
 [program:green-api]
 process_name=%(program_name)s
-command=php /home/jervi/projects/dual-channel-messaging-greep-api-laravel/artisan serve --host=127.0.0.1 --port=9010
+command=php /home/jervi/projects/dual-channel-messaging-green-api-laravel/artisan serve --host=127.0.0.1 --port=9010
 autostart=true
 autorestart=true
 stopasgroup=true
@@ -75,7 +75,7 @@ killasgroup=true
 user=jervi
 numprocs=1
 redirect_stderr=true
-stdout_logfile=/home/jervi/projects/dual-channel-messaging-greep-api-laravel/storage/logs/green-api.log
+stdout_logfile=/home/jervi/projects/dual-channel-messaging-green-api-laravel/storage/logs/green-api.log
 stopwaitsecs=3600
 ```
 
@@ -86,12 +86,12 @@ stopwaitsecs=3600
 
 Place these in `/etc/nginx/sites-available/`.
 
-### API Domain (`/etc/nginx/sites-available/green-api.jervi.dev`)
-sudo nano /etc/nginx/sites-available/green-api.jervi.dev
+### API Domain (`/etc/nginx/sites-available/green.anywaresolutions.org`)
+sudo nano /etc/nginx/sites-available/green.anywaresolutions.org
 **Port: 9010**
 ```nginx
 server {
-    server_name green-api.jervi.dev;
+    server_name green.anywaresolutions.org;
 
     location / {
         proxy_pass http://localhost:9010;
@@ -104,45 +104,44 @@ server {
         proxy_buffers 4 256k;
         proxy_busy_buffers_size 256k;
     }
+
 }
 server {
-    if ($host = octaprize.com) {
+    if ($host = green.anywaresolutions.org) {
         return 301 https://$host$request_uri;
     } # managed by Certbot
 
 
     listen 80;
-    server_name octaprize.com;
+    server_name green.anywaresolutions.org;
     return 404; # managed by Certbot
 }
 ```
 
-### Reverb Domain (`/etc/nginx/sites-available/green-reverb.jervi.dev`)
-**Port: 9011 (WebSocket Proxy)**
-sudo nano /etc/nginx/sites-available/green-reverb.jervi.dev
+### Reverb Domain (`/etc/nginx/sites-available/green-websocket.anywaresolutions.org`)
+**Port: 9011 (reverb Proxy)**
+sudo nano /etc/nginx/sites-available/green-websocket.anywaresolutions.org
 ```nginx
 server {
-    server_name green-reverb.jervi.dev;
+    server_name green-websocket.anywaresolutions.org;
 
-    # 🔓 allow larger requests (pick a size you’re comfy with)
+    # Allow larger uploads
     client_max_body_size 25M;
     client_body_buffer_size 256k;
     client_body_timeout 300s;
 
     location / {
-        proxy_pass http://localhost:7003;
+        proxy_pass http://localhost:9011;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-                # 🧠 streaming uploads to upstream (don’t buffer at Nginx)
-        proxy_request_buffering off;
 
-        # (optional) if buffering is on, don’t spill to temp files
+        # Streaming uploads — don't buffer at Nginx
+        proxy_request_buffering off;
         proxy_max_temp_file_size 0;
 
-        # timeouts for slow mobile networks
+        # Timeouts for slow networks
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
 
@@ -150,21 +149,18 @@ server {
         proxy_buffers 4 256k;
         proxy_busy_buffers_size 256k;
 
+        # WebSocket support
         proxy_http_version 1.1;
-        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
-
     }
 }
 
+# HTTP → HTTPS redirect
 server {
-    if ($host = chat.octaprize.com) {
-        return 301 https://$host$request_uri;
-    } # managed by Certbot
-
     listen 80;
-    server_name chat.octaprize.com;
-    return 404; # managed by Certbot
+    server_name green-websocket.anywaresolutions.org;
+    return 301 https://$host$request_uri;
 }
 
 ```
@@ -182,8 +178,8 @@ sudo supervisorctl start all
 
 ### 2. Update Nginx
 ```bash
-sudo ln -s /etc/nginx/sites-available/green-api.jervi.dev /etc/nginx/sites-enabled/green-api.jervi.dev
-sudo ln -s /etc/nginx/sites-available/green-reverb.jervi.dev /etc/nginx/sites-enabled/green-reverb.jervi.dev
+sudo ln -s /etc/nginx/sites-available/green.anywaresolutions.org /etc/nginx/sites-enabled/green.anywaresolutions.org
+sudo ln -s /etc/nginx/sites-available/green-websocket.anywaresolutions.org /etc/nginx/sites-enabled/green-websocket.anywaresolutions.org
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -204,7 +200,8 @@ sudo apt install certbot python3-certbot-nginx -y
 Since your sites use custom ports (9010/9011), you should use the `--nginx` plugin to handle the challenge via port 80.
 
 ```bash
-sudo certbot --nginx -d green-api.jervi.dev -d green-reverb.jervi.dev
+sudo certbot --nginx -d green.anywaresolutions.org
+sudo certbot --nginx -d green-websocket.anywaresolutions.org
 ```
 
 ### 3. Update Nginx for SSL
@@ -214,10 +211,10 @@ After running Certbot, it will likely add SSL directives and default to port 443
 ```nginx
 server {
     listen 9010 ssl; # managed by Certbot
-    server_name green-api.jervi.dev;
+    server_name green.anywaresolutions.org;
     
-    ssl_certificate /etc/letsencrypt/live/green-api.jervi.dev/fullchain.pem; # managed by Certbot
-    ssl_certificate_key /etc/letsencrypt/live/green-api.jervi.dev/privkey.pem; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/green.anywaresolutions.org/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/green.anywaresolutions.org/privkey.pem; # managed by Certbot
     include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
 
@@ -229,10 +226,10 @@ server {
 ```nginx
 server {
     listen 9011 ssl; # managed by Certbot
-    server_name green-reverb.jervi.dev;
+    server_name green-reverb.anywaresolutions.org;
 
-    ssl_certificate /etc/letsencrypt/live/green-reverb.jervi.dev/fullchain.pem; # managed by Certbot
-    ssl_certificate_key /etc/letsencrypt/live/green-reverb.jervi.dev/privkey.pem; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/green-reverb.anywaresolutions.org/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/green-reverb.anywaresolutions.org/privkey.pem; # managed by Certbot
     
     # ... rest of your config
 }

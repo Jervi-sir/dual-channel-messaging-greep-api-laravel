@@ -12,9 +12,9 @@ export default function AppSidebarLayout({
         <AppShell variant="sidebar">
             <AppSidebar />
             <AppContent variant="sidebar" className="overflow-x-hidden">
-                {breadcrumbs.length > 0 &&
+                {breadcrumbs.length > 0 && (
                     <AppSidebarHeader breadcrumbs={breadcrumbs} />
-                }
+                )}
                 {children}
             </AppContent>
         </AppShell>

@@ -12,17 +12,19 @@ use Throwable;
 
 class GreenApiMessageService
 {
-    public function __construct(protected GreenApiClient $client) {}
+    public function __construct(protected GreenApiClient $client)
+    {
+    }
 
     public function relayOutgoingMessage(Message $message, Conversation $conversation, User $sender): Message
     {
-        if (! $this->client->isConfigured() || blank($message->message) || $message->file_path) {
-            return $message;
-        }
+        // if (!$this->client->isConfigured() || blank($message->message) || $message->file_path) {
+        //     return $message;
+        // }
 
         $recipient = $conversation->otherParticipantFor($sender);
 
-        if (! $recipient || blank($recipient->phone)) {
+        if (!$recipient || blank($recipient->phone)) {
             return $message;
         }
 
@@ -59,6 +61,8 @@ class GreenApiMessageService
         match (Arr::get($payload, 'typeWebhook')) {
             'incomingMessageReceived' => $this->storeIncomingMessage($payload),
             'outgoingMessageStatus' => $this->syncOutgoingMessageStatus($payload),
+            'outgoingAPIMessageReceived' => $this->syncOutgoingMessageReceived($payload),
+            'outgoingMessageReceived' => $this->syncOutgoingMessageReceived($payload),
             default => null,
         };
     }
@@ -68,7 +72,7 @@ class GreenApiMessageService
         $providerMessageId = Arr::get($payload, 'idMessage');
         $phone = PhoneNumber::fromChatId(Arr::get($payload, 'senderData.sender'));
 
-        if (! is_string($providerMessageId) || ! $phone) {
+        if (!is_string($providerMessageId) || !$phone) {
             return;
         }
 
@@ -78,13 +82,13 @@ class GreenApiMessageService
 
         $sender = User::query()->where('phone', $phone)->first();
 
-        if (! $sender) {
+        if (!$sender) {
             return;
         }
 
         $conversation = $this->resolveInboundConversation($sender);
 
-        if (! $conversation) {
+        if (!$conversation) {
             return;
         }
 
@@ -108,7 +112,7 @@ class GreenApiMessageService
     {
         $providerMessageId = Arr::get($payload, 'idMessage');
 
-        if (! is_string($providerMessageId)) {
+        if (!is_string($providerMessageId)) {
             return;
         }
 
@@ -116,7 +120,7 @@ class GreenApiMessageService
             ->where('provider_message_id', $providerMessageId)
             ->first();
 
-        if (! $message) {
+        if (!$message) {
             return;
         }
 
@@ -124,6 +128,101 @@ class GreenApiMessageService
             'provider_status' => Arr::get($payload, 'status'),
             'provider_error' => Arr::get($payload, 'description'),
         ])->save();
+    }
+
+    protected function syncOutgoingMessageReceived(array $payload): void
+    {
+        $providerMessageId = Arr::get($payload, 'idMessage');
+
+        if (!is_string($providerMessageId)) {
+            return;
+        }
+
+        $message = Message::query()
+            ->where('provider_message_id', $providerMessageId)
+            ->first();
+
+        if ($message) {
+            $message->forceFill([
+                'provider_status' => 'sent',
+            ])->save();
+
+            return;
+        }
+
+        $this->storeOutgoingFromPhone($payload);
+    }
+
+    protected function storeOutgoingFromPhone(array $payload): void
+    {
+        $wid = Arr::get($payload, 'instanceData.wid');
+        $chatId = Arr::get($payload, 'senderData.chatId');
+
+        $senderPhone = PhoneNumber::fromChatId($wid);
+        $recipientPhone = PhoneNumber::fromChatId($chatId);
+
+        if (!$recipientPhone) {
+            return;
+        }
+
+        $recipient = User::query()->where('phone', $recipientPhone)->first();
+        $sender = $senderPhone
+            ? User::query()->where('phone', $senderPhone)->first()
+            : null;
+
+        if (!$recipient) {
+            return;
+        }
+
+        $conversation = $this->resolveOutboundConversation($recipient, $sender);
+
+        if (!$conversation) {
+            return;
+        }
+
+        $sender ??= $conversation->otherParticipantFor($recipient);
+
+        if (!$sender) {
+            return;
+        }
+
+        $message = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $sender->id,
+            'type' => 'whatsapp',
+            'channel' => 'whatsapp',
+            'relay_channel' => 'whatsapp',
+            'message' => $this->extractIncomingMessageText($payload),
+            'provider_message_id' => Arr::get($payload, 'idMessage'),
+            'provider_status' => 'sent',
+        ]);
+
+        $message->load('sender:id,name');
+        $conversation->touch();
+
+        broadcast(new MessageSent($message))->toOthers();
+    }
+
+    protected function resolveOutboundConversation(User $recipient, ?User $sender): ?Conversation
+    {
+        if ($sender) {
+            return Conversation::query()
+                ->betweenUsers($sender, $recipient)
+                ->latest('updated_at')
+                ->first();
+        }
+
+        return Conversation::query()
+            ->forUser($recipient)
+            ->whereHas('messages', function ($query): void {
+                $query->where('relay_channel', 'whatsapp');
+            })
+            ->latest('updated_at')
+            ->first()
+            ?? Conversation::query()
+                ->forUser($recipient)
+                ->latest('updated_at')
+                ->first();
     }
 
     protected function resolveInboundConversation(User $sender): ?Conversation
