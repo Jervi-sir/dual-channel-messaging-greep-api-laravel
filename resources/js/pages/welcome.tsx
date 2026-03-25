@@ -114,19 +114,29 @@ export default function Welcome({
                         </a>
                     </div>
 
-                    {/* Dashboard Preview mockup */}
-                    <div className="mt-20 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-4 shadow-2xl lg:mt-32">
-                        <div className="relative flex aspect-[16/9] items-center justify-center overflow-hidden rounded-2xl bg-[#0a0a0a]">
-                            <img
-                                src="/images/green-logo.png"
-                                alt="Concept Logo"
-                                className="w-48 opacity-20"
-                            />
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <div className="mb-4 h-4 w-1/2 animate-pulse rounded-full bg-white/5"></div>
-                                <div className="mb-4 h-4 w-1/3 animate-pulse rounded-full bg-white/5"></div>
-                                <div className="h-4 w-2/3 animate-pulse rounded-full bg-white/5"></div>
+                    {/* Dashboard Preview mockup -> Now a Video Player */}
+                    <div className="group mt-20 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-2 shadow-2xl transition-all duration-700 hover:border-emerald-500/20 hover:shadow-emerald-500/10 lg:mt-32">
+                        <div className="relative aspect-[16/9] overflow-hidden rounded-2xl bg-[#0a0a0a]">
+                            <iframe
+                                src="https://player.vimeo.com/video/1177087177?badge=0&autopause=0&quality=1080p&title=0&byline=0&portrait=0"
+                                className="absolute inset-0 h-full w-full"
+                                allow="autoplay; fullscreen; picture-in-picture"
+                                allowFullScreen
+                                title="Green API Platform Preview"
+                                loading="lazy"
+                            ></iframe>
+                            
+                            {/* Static Placeholder (Shown while iframe loads) */}
+                            <div className="pointer-events-none absolute inset-0 -z-10 flex flex-col items-center justify-center">
+                                <img
+                                    src="/images/green-logo.png"
+                                    alt="Platform Logo"
+                                    className="mb-8 w-32 animate-pulse opacity-20"
+                                />
                             </div>
+
+                            {/* Decorative Overlays */}
+                            <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10 rounded-2xl"></div>
                         </div>
                     </div>
                 </section>
