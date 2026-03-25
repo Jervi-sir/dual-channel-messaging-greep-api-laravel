@@ -10,7 +10,7 @@ Route::inertia('/', 'welcome', [
 ])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
+    Route::get('dashboard', fn() => redirect()->route('conversations.index'))->name('dashboard');
 
     Route::get('conversations', [ConversationController::class, 'index'])->name('conversations.index');
     Route::get('conversations/search-users', [ConversationController::class, 'searchUsers'])->name('conversations.search-users');
@@ -20,4 +20,4 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('conversations/{conversation}/messages', [MessageController::class, 'store'])->name('messages.store');
 });
 
-require __DIR__.'/settings.php';
+require __DIR__ . '/settings.php';
