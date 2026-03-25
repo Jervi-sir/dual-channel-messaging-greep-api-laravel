@@ -5,10 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
+use App\Support\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -80,12 +83,13 @@ class ConversationController extends Controller
             })
             ->orderBy('name')
             ->limit(8)
-            ->get(['id', 'name', 'email', 'role'])
+            ->get(['id', 'name', 'email', 'role', 'phone'])
             ->map(fn (User $searchedUser): array => Arr::only($searchedUser->toArray(), [
                 'id',
                 'name',
                 'email',
                 'role',
+                'phone',
             ]));
 
         return response()->json([
@@ -101,10 +105,32 @@ class ConversationController extends Controller
             'user_id' => ['required', 'integer', 'exists:users,id'],
         ]);
 
+        $normalizedPhone = PhoneNumber::normalize($request->input('phone'));
+
+        $validated = Validator::make([
+            ...$validated,
+            'phone' => $normalizedPhone,
+        ], [
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+            'phone' => ['nullable', 'string', 'regex:/^\+\d{8,15}$/'],
+        ])->validate();
+
         $recipient = User::query()
             ->whereKey($validated['user_id'])
             ->whereKeyNot($user->id)
             ->firstOrFail();
+
+        if (blank($recipient->phone) && blank($validated['phone'] ?? null)) {
+            throw ValidationException::withMessages([
+                'phone' => 'Add a WhatsApp number before starting this conversation.',
+            ]);
+        }
+
+        if (blank($recipient->phone) && filled($validated['phone'] ?? null)) {
+            $recipient->forceFill([
+                'phone' => $validated['phone'],
+            ])->save();
+        }
 
         [$customerId, $tradespersonId] = $this->resolveParticipantIds($user, $recipient);
 

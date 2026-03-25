@@ -5,12 +5,15 @@ namespace App\Http\Controllers;
 use App\Events\MessageSent;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\GreenApi\GreenApiMessageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rules\File;
 
 class MessageController extends Controller
 {
+    public function __construct(protected GreenApiMessageService $greenApiMessageService) {}
+
     public function store(Request $request, Conversation $conversation): JsonResponse
     {
         $user = $request->user();
@@ -56,6 +59,7 @@ class MessageController extends Controller
             'file_path' => $filePath,
         ]);
 
+        $message = $this->greenApiMessageService->relayOutgoingMessage($message, $conversation, $user);
         $message->load('sender:id,name');
 
         $conversation->touch();

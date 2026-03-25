@@ -41,9 +41,11 @@ class Conversation extends Model
 
     public function scopeForUser(Builder $query, User $user): Builder
     {
-        return $query
-            ->where('customer_id', $user->id)
-            ->orWhere('tradesperson_id', $user->id);
+        return $query->where(function (Builder $builder) use ($user): void {
+            $builder
+                ->where('customer_id', $user->id)
+                ->orWhere('tradesperson_id', $user->id);
+        });
     }
 
     public function scopeBetweenUsers(Builder $query, User $firstUser, User $secondUser): Builder

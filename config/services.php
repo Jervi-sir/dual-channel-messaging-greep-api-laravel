@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    'green_api' => [
+        'url' => env('GREEN_API_URL', 'https://api.green-api.com'),
+        'instance_id' => env('GREEN_API_INSTANCE_ID'),
+        'token' => env('GREEN_API_TOKEN'),
+        'webhook_token' => env('GREEN_API_WEBHOOK_TOKEN'),
+    ],
+
 ];

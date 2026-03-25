@@ -12,7 +12,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import AppLayout from '@/layouts/app-layout';
 import {
     index as conversationsIndex,
@@ -23,7 +33,6 @@ import {
 } from '@/routes/conversations';
 import { store as storeMessage } from '@/routes/messages';
 import type { BreadcrumbItem, User } from '@/types';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 
 type ConversationListUser = {
     id: number;
@@ -33,6 +42,7 @@ type ConversationListUser = {
 
 type SearchedUser = ConversationListUser & {
     role: string;
+    phone: string | null;
 };
 
 type ChatMessage = {
@@ -41,9 +51,13 @@ type ChatMessage = {
     sender_id: number | null;
     type: string;
     channel: string;
+    relay_channel: string | null;
     message: string;
     file_path: string | null;
     file_url: string | null;
+    provider_message_id: string | null;
+    provider_status: string | null;
+    provider_error: string | null;
     created_at: string | null;
     sender: {
         id: number;
@@ -155,10 +169,11 @@ function MessageBubble({
             className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
         >
             <div
-                className={`max-w-[85%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[70%] ${isOwnMessage
-                    ? 'rounded-br-md bg-primary text-primary-foreground'
-                    : 'rounded-bl-md border bg-card text-card-foreground'
-                    }`}
+                className={`max-w-[85%] rounded-3xl px-4 py-3 shadow-sm md:max-w-[70%] ${
+                    isOwnMessage
+                        ? 'rounded-br-md bg-primary text-primary-foreground'
+                        : 'rounded-bl-md border bg-card text-card-foreground'
+                }`}
             >
                 {!isOwnMessage && message.sender ? (
                     <p className="mb-1 text-xs font-medium opacity-70">
@@ -205,8 +220,8 @@ function MessageBubble({
                         ) : null}
 
                         {!isImage(message.file_url) &&
-                            !isVideo(message.file_url) &&
-                            !isAudio(message.file_url) ? (
+                        !isVideo(message.file_url) &&
+                        !isAudio(message.file_url) ? (
                             <a
                                 href={message.file_url}
                                 target="_blank"
@@ -221,8 +236,19 @@ function MessageBubble({
                 ) : null}
 
                 <p className="mt-2 text-right text-[11px] opacity-70">
+                    {message.channel === 'whatsapp' ? 'WhatsApp - ' : ''}
+                    {message.relay_channel === 'whatsapp' &&
+                    message.channel === 'in_app'
+                        ? `Mirrored to WhatsApp${message.provider_status ? ` (${message.provider_status})` : ''} - `
+                        : ''}
                     {formatTimestamp(message.created_at)}
                 </p>
+
+                {message.provider_error ? (
+                    <p className="mt-1 text-right text-[11px] text-destructive/80">
+                        {message.provider_error}
+                    </p>
+                ) : null}
             </div>
         </div>
     );
@@ -242,6 +268,13 @@ export default function ConversationsPage({
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<SearchedUser[]>([]);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [phonePromptUser, setPhonePromptUser] = useState<SearchedUser | null>(
+        null,
+    );
+    const [phonePromptValue, setPhonePromptValue] = useState('');
+    const [phonePromptError, setPhonePromptError] = useState<string | null>(
+        null,
+    );
     const [isSending, setIsSending] = useState(false);
     const [isLoadingOlder, setIsLoadingOlder] = useState(false);
     const [isSearchingUsers, setIsSearchingUsers] = useState(false);
@@ -356,8 +389,8 @@ export default function ConversationsPage({
 
                 const isNearBottom =
                     container.scrollHeight -
-                    container.scrollTop -
-                    container.clientHeight <
+                        container.scrollTop -
+                        container.clientHeight <
                     160;
 
                 if (
@@ -476,7 +509,13 @@ export default function ConversationsPage({
         });
     };
 
-    const handleConversationCreate = async (userId: number) => {
+    const closePhonePrompt = useCallback(() => {
+        setPhonePromptUser(null);
+        setPhonePromptValue('');
+        setPhonePromptError(null);
+    }, []);
+
+    const handleConversationCreate = async (userId: number, phone?: string) => {
         if (isCreatingConversation) {
             return;
         }
@@ -498,8 +537,26 @@ export default function ConversationsPage({
                 },
                 body: JSON.stringify({
                     user_id: userId,
+                    ...(phone ? { phone } : {}),
                 }),
             });
+
+            if (response.status === 422) {
+                const payload: { errors?: Record<string, string[]> } =
+                    await response.json();
+                const phoneError = payload.errors?.phone?.[0];
+                const firstError = Object.values(payload.errors ?? {})[0]?.[0];
+
+                if (phonePromptUser && phoneError) {
+                    setPhonePromptError(phoneError);
+
+                    return;
+                }
+
+                setError(firstError ?? 'Unable to create conversation.');
+
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error('Unable to create conversation.');
@@ -509,6 +566,7 @@ export default function ConversationsPage({
 
             setSearchQuery('');
             setSearchResults([]);
+            closePhonePrompt();
 
             router.get(
                 showConversation.url(payload.conversation_id),
@@ -523,6 +581,33 @@ export default function ConversationsPage({
         } finally {
             setIsCreatingConversation(false);
         }
+    };
+
+    const handleSearchResultSelect = (user: SearchedUser) => {
+        setError(null);
+
+        if (!user.phone) {
+            setPhonePromptUser(user);
+            setPhonePromptValue('');
+            setPhonePromptError(null);
+
+            return;
+        }
+
+        void handleConversationCreate(user.id);
+    };
+
+    const handlePhonePromptSubmit = async (
+        event: FormEvent<HTMLFormElement>,
+    ) => {
+        event.preventDefault();
+
+        if (!phonePromptUser) {
+            return;
+        }
+
+        setPhonePromptError(null);
+        await handleConversationCreate(phonePromptUser.id, phonePromptValue);
     };
 
     const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
@@ -598,8 +683,84 @@ export default function ConversationsPage({
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Conversations" />
+
+            <Dialog
+                open={phonePromptUser !== null}
+                onOpenChange={(open) => {
+                    if (!open && !isCreatingConversation) {
+                        closePhonePrompt();
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Add WhatsApp number</DialogTitle>
+                        <DialogDescription>
+                            WhatsApp relay needs a phone number before you can
+                            start a conversation with {phonePromptUser?.name}.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <form
+                        onSubmit={(event) => {
+                            void handlePhonePromptSubmit(event);
+                        }}
+                        className="space-y-4"
+                    >
+                        <div className="grid gap-2">
+                            <Label htmlFor="conversation-phone">
+                                Phone number
+                            </Label>
+                            <Input
+                                id="conversation-phone"
+                                type="tel"
+                                value={phonePromptValue}
+                                onChange={(event) => {
+                                    setPhonePromptValue(event.target.value);
+                                    setPhonePromptError(null);
+                                }}
+                                placeholder="+447700900123"
+                                autoComplete="tel"
+                            />
+                            <p className="text-sm text-muted-foreground">
+                                Use international format so WhatsApp delivery
+                                works for this contact.
+                            </p>
+                            {phonePromptError ? (
+                                <p className="text-sm text-destructive">
+                                    {phonePromptError}
+                                </p>
+                            ) : null}
+                        </div>
+
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={closePhonePrompt}
+                                disabled={isCreatingConversation}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={isCreatingConversation}
+                            >
+                                {isCreatingConversation ? (
+                                    <>
+                                        <LoaderCircle className="mr-2 size-4 animate-spin" />
+                                        Saving...
+                                    </>
+                                ) : (
+                                    'Save and start chat'
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
 
             <div className="flex h-screen flex-col overflow-hidden p-4">
                 <div className="grid flex-1 gap-4 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)]">
@@ -607,7 +768,7 @@ export default function ConversationsPage({
                         className={`min-h-0 overflow-hidden rounded-3xl border bg-card ${selectedConversation ? 'hidden lg:flex' : 'flex'} flex-col`}
                     >
                         <div className="border-b px-5 py-4">
-                            <div className='flex flex-row items-start'>
+                            <div className="flex flex-row items-start">
                                 <SidebarTrigger />
                                 <div>
                                     <h1 className="text-lg font-semibold">
@@ -642,11 +803,11 @@ export default function ConversationsPage({
                                                     <button
                                                         key={user.id}
                                                         type="button"
-                                                        onClick={() => {
-                                                            void handleConversationCreate(
-                                                                user.id,
-                                                            );
-                                                        }}
+                                                        onClick={() =>
+                                                            handleSearchResultSelect(
+                                                                user,
+                                                            )
+                                                        }
                                                         className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left transition hover:bg-accent/60"
                                                         disabled={
                                                             isCreatingConversation
@@ -660,6 +821,13 @@ export default function ConversationsPage({
                                                                 {user.email} ·{' '}
                                                                 {user.role}
                                                             </p>
+                                                            {!user.phone ? (
+                                                                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                                                    WhatsApp
+                                                                    number
+                                                                    required
+                                                                </p>
+                                                            ) : null}
                                                         </div>
 
                                                         {isCreatingConversation ? (
@@ -699,8 +867,9 @@ export default function ConversationsPage({
                                                         conversation.id,
                                                     )
                                                 }
-                                                className={`flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-accent/60 ${isActive ? 'bg-accent' : ''
-                                                    }`}
+                                                className={`flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-accent/60 ${
+                                                    isActive ? 'bg-accent' : ''
+                                                }`}
                                             >
                                                 <Avatar className="size-11">
                                                     <AvatarFallback>
@@ -726,7 +895,7 @@ export default function ConversationsPage({
                                                                 conversation
                                                                     .latest_message
                                                                     ?.created_at ??
-                                                                conversation.updated_at,
+                                                                    conversation.updated_at,
                                                             )}
                                                         </span>
                                                     </div>
@@ -875,7 +1044,7 @@ export default function ConversationsPage({
                                                         setSelectedFile(
                                                             event.target
                                                                 .files?.[0] ??
-                                                            null,
+                                                                null,
                                                         );
                                                     }}
                                                 />

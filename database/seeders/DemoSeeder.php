@@ -2,12 +2,10 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
-use Illuminate\Database\Seeder;
-
-use App\Models\User;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\User;
+use Illuminate\Database\Seeder;
 
 class DemoSeeder extends Seeder
 {
@@ -17,6 +15,7 @@ class DemoSeeder extends Seeder
         $customer = User::create([
             'name' => 'John Customer',
             'email' => 'customer@test.com',
+            'phone' => '+447700900111',
             'password' => bcrypt('password'),
             'role' => 'customer',
         ]);
@@ -24,6 +23,7 @@ class DemoSeeder extends Seeder
         $tradesperson = User::create([
             'name' => 'Mike Trades',
             'email' => 'trades@test.com',
+            'phone' => '+447700900222',
             'password' => bcrypt('password'),
             'role' => 'tradesperson',
         ]);

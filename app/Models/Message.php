@@ -15,8 +15,12 @@ class Message extends Model
         'sender_id',
         'type',
         'channel',
+        'relay_channel',
         'message',
         'file_path',
+        'provider_message_id',
+        'provider_status',
+        'provider_error',
     ];
 
     public function conversation(): BelongsTo
@@ -40,9 +44,13 @@ class Message extends Model
             'sender_id' => $this->sender_id,
             'type' => $this->type,
             'channel' => $this->channel,
+            'relay_channel' => $this->relay_channel,
             'message' => $this->message,
             'file_path' => $this->file_path,
             'file_url' => $this->file_path ? asset('storage/'.$this->file_path) : null,
+            'provider_message_id' => $this->provider_message_id,
+            'provider_status' => $this->provider_status,
+            'provider_error' => $this->provider_error,
             'created_at' => $this->created_at?->toISOString(),
             'sender' => $this->sender ? [
                 'id' => $this->sender->id,

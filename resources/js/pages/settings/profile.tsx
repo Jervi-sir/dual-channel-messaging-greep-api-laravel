@@ -23,9 +23,11 @@ const breadcrumbs: BreadcrumbItem[] = [
 export default function Profile({
     mustVerifyEmail,
     status,
+    whatsappWebhookUrl,
 }: {
     mustVerifyEmail: boolean;
     status?: string;
+    whatsappWebhookUrl: string;
 }) {
     const { auth } = usePage().props;
 
@@ -40,7 +42,7 @@ export default function Profile({
                     <Heading
                         variant="small"
                         title="Profile information"
-                        description="Update your name and email address"
+                        description="Update your name, email address, and WhatsApp number used for dual-channel messaging"
                     />
 
                     <Form
@@ -88,6 +90,34 @@ export default function Profile({
                                     <InputError
                                         className="mt-2"
                                         message={errors.email}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="phone">
+                                        WhatsApp number
+                                    </Label>
+
+                                    <Input
+                                        id="phone"
+                                        type="tel"
+                                        className="mt-1 block w-full"
+                                        defaultValue={auth.user.phone ?? ''}
+                                        name="phone"
+                                        autoComplete="tel"
+                                        placeholder="+447700900123"
+                                    />
+
+                                    <p className="text-sm text-muted-foreground">
+                                        Use international format so in-app
+                                        messages can also be relayed through
+                                        Green API. Webhook URL:{' '}
+                                        {whatsappWebhookUrl}
+                                    </p>
+
+                                    <InputError
+                                        className="mt-2"
+                                        message={errors.phone}
                                     />
                                 </div>
 

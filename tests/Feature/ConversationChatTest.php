@@ -4,6 +4,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -101,6 +102,140 @@ test('participants can send a message with media', function () {
     Storage::disk('public')->assertExists($storedMessage->file_path);
 });
 
+test('participants can relay text messages to whatsapp through green api', function () {
+    config()->set('services.green_api.url', 'https://api.green-api.com');
+    config()->set('services.green_api.instance_id', '7103000000');
+    config()->set('services.green_api.token', 'green-api-token');
+
+    Http::fake([
+        'https://api.green-api.com/*' => Http::response([
+            'idMessage' => '3EB0608D6A2901063D63',
+        ]),
+    ]);
+
+    $customer = User::factory()->create([
+        'phone' => '+447700900111',
+    ]);
+    $tradesperson = User::factory()->create([
+        'phone' => '+447700900222',
+    ]);
+
+    $conversation = Conversation::create([
+        'customer_id' => $customer->id,
+        'tradesperson_id' => $tradesperson->id,
+    ]);
+
+    $response = $this->actingAs($customer)->post(route('messages.store', $conversation), [
+        'message' => 'Can you confirm the booking window?',
+    ]);
+
+    $response
+        ->assertCreated()
+        ->assertJsonPath('message.relay_channel', 'whatsapp')
+        ->assertJsonPath('message.provider_status', 'sent')
+        ->assertJsonPath('message.provider_message_id', '3EB0608D6A2901063D63');
+
+    $storedMessage = Message::query()->sole();
+
+    expect($storedMessage->relay_channel)->toBe('whatsapp');
+    expect($storedMessage->provider_status)->toBe('sent');
+    expect($storedMessage->provider_message_id)->toBe('3EB0608D6A2901063D63');
+
+    Http::assertSent(function ($request) {
+        return $request->url() === 'https://api.green-api.com/waInstance7103000000/sendMessage/green-api-token'
+            && $request['chatId'] === '447700900222@c.us'
+            && str_contains($request['message'], 'Can you confirm the booking window?');
+    });
+});
+
+test('green api incoming webhook stores a whatsapp message for the latest conversation', function () {
+    config()->set('services.green_api.webhook_token', 'Bearer integration-secret');
+
+    $customer = User::factory()->create([
+        'phone' => '+447700900111',
+    ]);
+    $tradesperson = User::factory()->create([
+        'phone' => '+447700900222',
+    ]);
+
+    $conversation = Conversation::create([
+        'customer_id' => $customer->id,
+        'tradesperson_id' => $tradesperson->id,
+    ]);
+
+    Message::create([
+        'conversation_id' => $conversation->id,
+        'sender_id' => $tradesperson->id,
+        'type' => 'user',
+        'channel' => 'in_app',
+        'relay_channel' => 'whatsapp',
+        'message' => 'Please reply on WhatsApp if easier.',
+    ]);
+
+    $payload = [
+        'typeWebhook' => 'incomingMessageReceived',
+        'idMessage' => 'F7AEC1B7086ECDC7E6E45923F5EDB825',
+        'senderData' => [
+            'sender' => '447700900111@c.us',
+        ],
+        'messageData' => [
+            'typeMessage' => 'textMessage',
+            'textMessageData' => [
+                'textMessage' => 'Replying from WhatsApp now.',
+            ],
+        ],
+    ];
+
+    $this->withHeaders([
+        'Authorization' => 'Bearer integration-secret',
+    ])->postJson(route('api.green-api.webhook'), $payload)->assertNoContent();
+
+    $storedMessage = Message::query()->latest('id')->first();
+
+    expect($storedMessage)->not->toBeNull();
+    expect($storedMessage?->conversation_id)->toBe($conversation->id);
+    expect($storedMessage?->sender_id)->toBe($customer->id);
+    expect($storedMessage?->channel)->toBe('whatsapp');
+    expect($storedMessage?->provider_message_id)->toBe('F7AEC1B7086ECDC7E6E45923F5EDB825');
+    expect($storedMessage?->message)->toBe('Replying from WhatsApp now.');
+});
+
+test('green api outgoing status webhook updates a relayed message status', function () {
+    config()->set('services.green_api.webhook_token', 'Bearer integration-secret');
+
+    $customer = User::factory()->create();
+    $tradesperson = User::factory()->create();
+
+    $conversation = Conversation::create([
+        'customer_id' => $customer->id,
+        'tradesperson_id' => $tradesperson->id,
+    ]);
+
+    $message = Message::create([
+        'conversation_id' => $conversation->id,
+        'sender_id' => $customer->id,
+        'type' => 'user',
+        'channel' => 'in_app',
+        'relay_channel' => 'whatsapp',
+        'message' => 'Status check',
+        'provider_message_id' => '3EB0608D6A2901063D63',
+        'provider_status' => 'sent',
+    ]);
+
+    $payload = [
+        'typeWebhook' => 'outgoingMessageStatus',
+        'idMessage' => '3EB0608D6A2901063D63',
+        'status' => 'read',
+        'description' => null,
+    ];
+
+    $this->withHeaders([
+        'Authorization' => 'Bearer integration-secret',
+    ])->postJson(route('api.green-api.webhook'), $payload)->assertNoContent();
+
+    expect($message->fresh()->provider_status)->toBe('read');
+});
+
 test('users can search for people to start a conversation', function () {
     $customer = User::factory()->create(['name' => 'Chris Customer']);
     $tradesperson = User::factory()->create([
@@ -123,7 +258,10 @@ test('users can search for people to start a conversation', function () {
 
 test('users can create or reuse a conversation from search', function () {
     $customer = User::factory()->create(['role' => 'customer']);
-    $tradesperson = User::factory()->create(['role' => 'tradesperson']);
+    $tradesperson = User::factory()->create([
+        'role' => 'tradesperson',
+        'phone' => '+447700900222',
+    ]);
 
     $firstResponse = $this->actingAs($customer)->postJson(route('conversations.store'), [
         'user_id' => $tradesperson->id,
@@ -146,4 +284,41 @@ test('users can create or reuse a conversation from search', function () {
         ->assertJsonPath('conversation_id', $conversation->id);
 
     expect(Conversation::query()->count())->toBe(1);
+});
+
+test('users must supply a whatsapp number before creating a conversation with a contact missing one', function () {
+    $customer = User::factory()->create(['role' => 'customer']);
+    $tradesperson = User::factory()->create([
+        'role' => 'tradesperson',
+        'phone' => null,
+    ]);
+
+    $response = $this->actingAs($customer)->postJson(route('conversations.store'), [
+        'user_id' => $tradesperson->id,
+    ]);
+
+    $response
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['phone']);
+
+    expect(Conversation::query()->count())->toBe(0);
+    expect($tradesperson->fresh()->phone)->toBeNull();
+});
+
+test('users can save a missing whatsapp number while creating a conversation', function () {
+    $customer = User::factory()->create(['role' => 'customer']);
+    $tradesperson = User::factory()->create([
+        'role' => 'tradesperson',
+        'phone' => null,
+    ]);
+
+    $response = $this->actingAs($customer)->postJson(route('conversations.store'), [
+        'user_id' => $tradesperson->id,
+        'phone' => '(447) 700-900-222',
+    ]);
+
+    $response->assertCreated();
+
+    expect(Conversation::query()->count())->toBe(1);
+    expect($tradesperson->fresh()->phone)->toBe('+447700900222');
 });
